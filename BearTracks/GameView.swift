@@ -10,8 +10,8 @@
 import SwiftUI
 
 struct GameView: View {
-    /// One tile of the 3x3 grid.
-    private let tileCount = 9
+    /// Tiles on the board: three columns, four rows.
+    private let tileCount = 12
     /// Background for a tile the player mistakenly tapped.
     private static let missRed = Color(red: 0.78, green: 0.12, blue: 0.12)
     /// How long a round lasts, in seconds.
@@ -33,20 +33,23 @@ struct GameView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                scoreboard
+            ScrollView {
+                VStack(spacing: 20) {
+                    scoreboard
 
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(0..<tileCount, id: \.self) { index in
-                        tile(at: index)
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(0..<tileCount, id: \.self) { index in
+                            tile(at: index)
+                        }
                     }
+
+                    controlButton
                 }
-
-                controlButton
-
-                Spacer()
+                .padding(16)
             }
-            .padding(16)
+            // A fourth row of square tiles runs past the bottom of a short
+            // screen, so let the board scroll — but only when it has to.
+            .scrollBounceBehavior(.basedOnSize)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
