@@ -180,6 +180,82 @@ struct MenuItem: Identifiable, Hashable {
 
     var diets: [DietaryTag] { DietaryTag.diets.filter { tags.contains($0) } }
     var allergens: [DietaryTag] { DietaryTag.allergens.filter { tags.contains($0) } }
+
+    /// Identifies the dish to the nutrition lookup. Stable across reloads,
+    /// unlike `id`, which is freshly minted every time the page is parsed.
+    var nutritionKey: String { "\(location)|\(recipeId)|\(menuId)" }
+
+    /// Whether Cal Dining gave us enough to ask for this dish's nutrition.
+    var hasNutritionLookup: Bool {
+        !location.isEmpty && !recipeId.isEmpty && !menuId.isEmpty
+    }
+}
+
+// MARK: - Nutrition
+
+/// The serving size and macros Cal Dining publishes for one dish. Values are
+/// optional because the recipe card occasionally omits a row.
+struct NutritionFacts: Hashable, Sendable {
+    /// As printed on the recipe card, e.g. "4 oz". Empty when absent.
+    let servingSize: String
+    let calories: Double?
+    let protein: Double?
+    let carbohydrate: Double?
+    let fat: Double?
+
+    /// The one-line macro summary shown under a dish, e.g.
+    /// "Cal: 201.67  Protein: 23.2g  Carb: 10.38g  Fat: 6.75g". Nil when the
+    /// recipe card carried no numbers at all.
+    var macroSummary: String? {
+        var parts: [String] = []
+        if let calories { parts.append("Cal: \(Self.format(calories))") }
+        if let protein { parts.append("Protein: \(Self.format(protein))g") }
+        if let carbohydrate { parts.append("Carb: \(Self.format(carbohydrate))g") }
+        if let fat { parts.append("Fat: \(Self.format(fat))g") }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ")
+    }
+
+    /// Two decimals at most, with trailing zeros dropped, so 23.20 reads as
+    /// "23.2" and 94.0 as "94".
+    static func format(_ value: Double) -> String {
+        let rounded = (value * 100).rounded() / 100
+        guard rounded != rounded.rounded() else { return String(Int(rounded)) }
+        var text = String(format: "%.2f", rounded)
+        while text.hasSuffix("0") { text.removeLast() }
+        return text
+    }
+}
+
+/// Holds onto recipe nutrition for the life of the app run and folds duplicate
+/// requests for the same dish into a single network call — a menu screen asks
+/// for every visible row at once, and rebuilding the list (say, after a filter
+/// change) asks for them all again.
+actor NutritionCache {
+    static let shared = NutritionCache()
+
+    private var cached: [String: NutritionFacts] = [:]
+    private var inFlight: [String: Task<NutritionFacts, Error>] = [:]
+
+    func facts(for item: MenuItem) async throws -> NutritionFacts {
+        let key = item.nutritionKey
+        if let hit = cached[key] { return hit }
+        if let running = inFlight[key] { return try await running.value }
+
+        // Unstructured on purpose: a row scrolling away cancels its own
+        // `.task`, but the fetch it kicked off should still finish and land
+        // in the cache for the next row that needs it.
+        let task = Task {
+            try await DiningService.fetchNutrition(location: item.location,
+                                                   recipeId: item.recipeId,
+                                                   menuId: item.menuId)
+        }
+        inFlight[key] = task
+        defer { inFlight[key] = nil }
+
+        let facts = try await task.value
+        cached[key] = facts
+        return facts
+    }
 }
 
 /// A run of dishes served together at one menu station within a meal, e.g.
@@ -487,6 +563,86 @@ struct DiningService {
         diagnostics.sampleClasses = interestingClassAttributes(in: html)
 
         return DiningFetchResult(locations: locations, diagnostics: diagnostics)
+    }
+
+    // MARK: - Nutrition
+
+    /// Fetches one dish's recipe card. This is the same `get_recipe_details`
+    /// call the site makes when a dish is tapped, keyed by the `data-location`,
+    /// `data-id` and `data-menuid` attributes we captured while parsing.
+    static func fetchNutrition(location: String,
+                               recipeId: String,
+                               menuId: String) async throws -> NutritionFacts {
+        var request = URLRequest(url: URL(string: ajaxPath)!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        // `location` is a base64 path, so it has to be escaped rather than
+        // pasted into the body — its "+" and "/" mean something to a form.
+        request.httpBody = formEncoded([
+            ("action", "get_recipe_details"),
+            ("location", location),
+            ("id", recipeId),
+            ("menu_id", menuId)
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status) else {
+            throw DiningServiceError.badResponse(status)
+        }
+        guard let html = String(data: data, encoding: .utf8)
+                ?? String(data: data, encoding: .isoLatin1) else {
+            throw DiningServiceError.unreadable
+        }
+        return parseNutrition(html: html)
+    }
+
+    /// Reads the recipe card's serving size and its `<li><span>Label:</span>
+    /// value</li>` nutrition rows.
+    static func parseNutrition(html: String) -> NutritionFacts {
+        let serving = firstMatch(in: html,
+                                 pattern: "class=[\"']serving-size[\"']>\\s*Serving Size:\\s*([^<]*)<")
+            .map { collapseWhitespace(decodeEntities($0)) } ?? ""
+
+        var rows: [(label: String, value: Double)] = []
+        if let regex = try? NSRegularExpression(
+            pattern: "<li>\\s*<span>([^<]*)</span>\\s*([0-9]+(?:\\.[0-9]+)?)",
+            options: [.caseInsensitive]
+        ) {
+            let ns = html as NSString
+            for match in regex.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+                let label = ns.substring(with: match.range(at: 1)).lowercased()
+                guard let value = Double(ns.substring(with: match.range(at: 2))) else { continue }
+                rows.append((label, value))
+            }
+        }
+
+        func value(_ keyword: String) -> Double? {
+            rows.first { $0.label.contains(keyword) }?.value
+        }
+
+        return NutritionFacts(
+            servingSize: serving,
+            calories: value("calories"),
+            protein: value("protein"),
+            carbohydrate: value("carbohydrate"),
+            // The row reads "Total Lipid/Fat"; keying off "lipid" avoids
+            // picking up the saturated and trans fat rows below it.
+            fat: value("lipid")
+        )
+    }
+
+    private static func formEncoded(_ pairs: [(String, String)]) -> Data {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        return pairs
+            .map { "\($0.0)=\($0.1.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")" }
+            .joined(separator: "&")
+            .data(using: .utf8) ?? Data()
+    }
+
+    private static func collapseWhitespace(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     // MARK: - Diagnostics helpers

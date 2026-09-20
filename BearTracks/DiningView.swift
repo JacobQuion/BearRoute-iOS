@@ -13,8 +13,19 @@ final class DiningViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    @Published var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @Published var selectedDate: Date
     @Published var selectedHall: DiningHall = DiningHall.all[0]
+
+    /// The day the picker was last moved to on its own. Lets the 9 PM
+    /// rollover tell "the user is riding along with the default day" apart
+    /// from "the user picked a day", so a deliberate choice is never yanked.
+    private var autoSelectedDate: Date
+
+    init() {
+        let day = DiningViewModel.defaultDate()
+        selectedDate = day
+        autoSelectedDate = day
+    }
 
     /// When a dish is tapped from the notable list, the meal label to
     /// auto-expand once its hall menu opens. Consumed (cleared) by
@@ -31,8 +42,31 @@ final class DiningViewModel: ObservableObject {
     /// The diet filters offered, shown as fixed buttons.
     static let dietFilters: [DietaryTag] = [.vegan, .vegetarian, .halal, .kosher]
 
+    /// An allergen button, which can stand for more than one underlying tag —
+    /// "No Nut" has to cover peanuts and tree nuts alike.
+    struct AllergenFilter: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let tags: Set<DietaryTag>
+    }
+
     /// The allergen filters offered ("No …"), shown as fixed buttons.
-    static let allergenFilters: [DietaryTag] = [.dairy, .peanut]
+    static let allergenFilters: [AllergenFilter] = [
+        .init(id: "dairy", label: "Dairy", tags: [.dairy]),
+        .init(id: "nut", label: "Nut", tags: [.peanut, .treenut])
+    ]
+
+    func isAvoiding(_ filter: AllergenFilter) -> Bool {
+        filter.tags.isSubset(of: avoidAllergens)
+    }
+
+    func toggle(_ filter: AllergenFilter) {
+        if isAvoiding(filter) {
+            avoidAllergens.subtract(filter.tags)
+        } else {
+            avoidAllergens.formUnion(filter.tags)
+        }
+    }
 
     var hasActiveFilters: Bool { !activeDiets.isEmpty || !avoidAllergens.isEmpty }
 
@@ -121,36 +155,23 @@ final class DiningViewModel: ObservableObject {
         }
     }
 
-    /// Every notable dish on the selected day, across the residential dining
-    /// commons, sorted by when it's served — breakfast first, then lunch, then
-    /// dinner — with halls kept in their canonical order within a meal.
-    /// Duplicates of the same dish at the same hall and meal are collapsed.
-    func notableDishes() -> [DishHit] {
+    /// The notable dishes one hall is serving on the selected day, sorted by
+    /// when they're served — breakfast first, then lunch, then dinner.
+    /// Duplicates of the same dish within a meal are collapsed.
+    func notableDishes(at hall: DiningHall) -> [DishHit] {
+        guard let location = location(for: hall) else { return [] }
         var hits: [DishHit] = []
         var seen = Set<String>()
-        // Only the residential dining commons (Crossroads, Café 3, Clark Kerr,
-        // Foothill); the retail cafés aren't where standout meals show up.
-        for hall in DiningHall.all where hall.isResidential {
-            guard let location = location(for: hall) else { continue }
-            for period in location.labeledPeriods {
-                for item in period.period.items where Self.isNotable(item.name) {
-                    let key = "\(hall.id)|\(item.name.lowercased())|\(period.label)"
-                    guard seen.insert(key).inserted else { continue }
-                    hits.append(DishHit(item: item, hall: hall, meal: period.label))
-                }
+        for period in location.labeledPeriods {
+            for item in period.period.items where Self.isNotable(item.name) {
+                let key = "\(item.name.lowercased())|\(period.label)"
+                guard seen.insert(key).inserted else { continue }
+                hits.append(DishHit(item: item, hall: hall, meal: period.label))
             }
         }
-        return hits.sorted { lhs, rhs in
-            let lhsMeal = MealKind(periodName: lhs.meal).sortOrder
-            let rhsMeal = MealKind(periodName: rhs.meal).sortOrder
-            if lhsMeal != rhsMeal { return lhsMeal < rhsMeal }
-            return hallOrder(lhs.hall) < hallOrder(rhs.hall)
+        return hits.sorted {
+            MealKind(periodName: $0.meal).sortOrder < MealKind(periodName: $1.meal).sortOrder
         }
-    }
-
-    /// Position of a hall in the canonical `DiningHall.all` order.
-    private func hallOrder(_ hall: DiningHall) -> Int {
-        DiningHall.all.firstIndex { $0.id == hall.id } ?? Int.max
     }
 
     // MARK: Lookups
@@ -180,6 +201,62 @@ final class DiningViewModel: ObservableObject {
     var campusEateries: [DiningHall] { DiningHall.all.filter { !$0.isResidential } }
 
     // MARK: Dates
+
+    /// Berkeley's time zone. The 9 PM cutoff below is campus time, so the day
+    /// flips at the same moment for everyone regardless of device settings.
+    static let campusTimeZone = TimeZone(identifier: "America/Los_Angeles") ?? .current
+
+    /// Dinner service is done by 9 PM, so from then on the menu worth showing
+    /// is tomorrow's.
+    static let rolloverHour = 21
+
+    /// The day the tab opens to: today, or tomorrow once the 9 PM campus-time
+    /// cutoff has passed.
+    static func defaultDate(now: Date = Date()) -> Date {
+        let today = Calendar.current.startOfDay(for: now)
+        guard hasPassedRollover(now) else { return today }
+        return Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+    }
+
+    /// Whether it's 9 PM or later in Berkeley right now.
+    static func hasPassedRollover(_ now: Date = Date()) -> Bool {
+        var calendar = Calendar.current
+        calendar.timeZone = campusTimeZone
+        return calendar.component(.hour, from: now) >= rolloverHour
+    }
+
+    /// The next moment the cutoff fires. Always strictly in the future, so
+    /// the watch loop below can't spin.
+    static func nextRollover(after now: Date = Date()) -> Date {
+        var calendar = Calendar.current
+        calendar.timeZone = campusTimeZone
+        let cutoff = DateComponents(hour: rolloverHour, minute: 0, second: 0)
+        return calendar.nextDate(after: now, matching: cutoff, matchingPolicy: .nextTime)
+            ?? now.addingTimeInterval(3600)
+    }
+
+    /// Advances to tomorrow's menu if the cutoff has passed since the last
+    /// check. A hand-picked day is left where the user put it.
+    func refreshDefaultDate() {
+        let target = Self.defaultDate()
+        guard target != autoSelectedDate else { return }
+        let wasFollowingDefault = selectedDate == autoSelectedDate
+        autoSelectedDate = target
+        if wasFollowingDefault { selectedDate = target }
+    }
+
+    /// Sleeps until the next 9 PM cutoff, rolls the day forward, then waits
+    /// for the one after — so a session left open past 9 doesn't sit on a
+    /// stale menu. Backgrounded time is covered by the scene-phase check in
+    /// `DiningView`, since sleeping tasks don't run while suspended.
+    func watchForRollover() async {
+        while !Task.isCancelled {
+            let delay = Self.nextRollover().timeIntervalSinceNow
+            try? await Task.sleep(for: .seconds(max(delay, 1)))
+            guard !Task.isCancelled else { return }
+            refreshDefaultDate()
+        }
+    }
 
     var selectableDates: [Date] {
         (-1...6).compactMap {
@@ -236,6 +313,8 @@ struct DiningView: View {
     /// Shared app-wide appearance setting, toggled from the top-right menu.
     @AppStorage("isDarkMode") private var isDarkMode = true
 
+    @Environment(\.scenePhase) private var scenePhase
+
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -253,6 +332,9 @@ struct DiningView: View {
             }
             .navigationTitle("Dining")
             .navigationBarTitleDisplayMode(.inline)
+            // Each hall card is its own section, so section spacing is what
+            // separates the thumbnails — tighten it from the default gap.
+            .listSectionSpacing(8)
             // Trim the List's default top inset so the day/search bar sits closer
             // to the "Dining" title.
             .contentMargins(.top, 6, for: .scrollContent)
@@ -295,6 +377,12 @@ struct DiningView: View {
             }
             .task {
                 if model.locations.isEmpty { await model.load() }
+            }
+            .task { await model.watchForRollover() }
+            // Catches a cutoff that passed while the app was backgrounded,
+            // when the sleeping watch task wasn't running.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { model.refreshDefaultDate() }
             }
         }
     }
@@ -357,10 +445,10 @@ struct DiningView: View {
 
     // MARK: Hall browser
 
-    @ViewBuilder
+    /// Every hall card — the dining commons, then the campus-eateries entry —
+    /// in a single section, so they stack flush against one another as one
+    /// connected list instead of separate floating cards.
     private var hallBrowser: some View {
-        notableSection
-
         Section {
             ForEach(model.diningCommons) { hall in
                 Button {
@@ -370,6 +458,7 @@ struct DiningView: View {
                     hallCard(for: hall)
                 }
                 .buttonStyle(.plain)
+                .listRowInsets(CardList.rowInsets)
             }
 
             Button {
@@ -378,6 +467,15 @@ struct DiningView: View {
                 eateriesCard
             }
             .buttonStyle(.plain)
+            .listRowInsets(CardList.rowInsets)
+        } footer: {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle")
+                Text("Cal Dining: \"menus are subject to change.\"")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -404,7 +502,6 @@ struct DiningView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
     }
 
     /// A short teaser of the eateries, e.g. "Golden Bear Café, Brown's & 5 more".
@@ -412,65 +509,6 @@ struct DiningView: View {
         let names = model.campusEateries.map(\.name)
         guard names.count > 2 else { return names.joined(separator: ", ") }
         return "\(names[0]), \(names[1]) & \(names.count - 2) more"
-    }
-
-    // MARK: Notable items
-
-    /// Standout dishes (steak, salmon, lobster, …) across every hall for the
-    /// selected day, shown above the hall list. Falls back to a gentle note
-    /// when nothing notable is being served.
-    private var notableSection: some View {
-        let dishes = model.notableDishes()
-        return Section {
-            if dishes.isEmpty {
-                Text("Nothing much. It's a Flex/Flex+ day!")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(dishes) { hit in
-                    Button {
-                        model.selectedHall = hit.hall
-                        model.focusedMeal = hit.meal
-                        showingMenu = true
-                    } label: {
-                        notableRow(hit)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        } header: {
-            Label("Notable Dining Hall Dishes", systemImage: "star.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.californiaGold)
-                .textCase(nil)
-        } footer: {
-            HStack(spacing: 4) {
-                Image(systemName: "exclamationmark.triangle")
-                Text("Cal Dining: \"menus are subject to change.\"")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-    }
-
-    private func notableRow(_ hit: DishHit) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(hit.item.name)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                Text("\(hit.hall.name) · \(hit.meal)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-        .contentShape(Rectangle())
     }
 
     // MARK: Cross-hall search
@@ -545,7 +583,6 @@ struct DiningView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
     }
 
     /// What to show under the hall name: the meals it's serving today, or a
@@ -654,7 +691,7 @@ struct DiningImage: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1.5)
             )
     }
 }
@@ -765,6 +802,8 @@ struct MenuResultView: View {
                 .textCase(nil)
             }
 
+            notableSection
+
             ForEach(visiblePeriods, id: \.entry.id) { entry, items in
                 let isExpanded = expandedMeals.contains(entry.id)
                 Section {
@@ -812,6 +851,64 @@ struct MenuResultView: View {
         .id(menuSignature)
     }
 
+    // MARK: Notable items
+
+    /// This hall's standout dishes (steak, salmon, lobster, …) for the day,
+    /// sitting above the meal drop-downs so they're the first thing seen on
+    /// opening a hall. Tapping one expands the meal it's served in.
+    @ViewBuilder
+    private var notableSection: some View {
+        let dishes = model.notableDishes(at: model.selectedHall)
+
+        Section {
+            if dishes.isEmpty {
+                Text("Nothing much. It's a Flex/Flex+ day!")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(dishes) { hit in
+                    Button {
+                        expand(meal: hit.meal)
+                    } label: {
+                        notableRow(hit)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } header: {
+            Label("Notable Dishes", systemImage: "star.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.notableGold)
+                .textCase(nil)
+        }
+    }
+
+    private func notableRow(_ hit: DishHit) -> some View {
+        HStack(spacing: 10) {
+            Text(hit.item.name)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            Text(hit.meal)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(Theme.californiaGold)
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
+    /// Opens the drop-down for `label`, so a tapped notable dish leads
+    /// straight to the meal serving it.
+    private func expand(meal label: String) {
+        guard let match = periods.first(where: { $0.label == label }) else { return }
+        withAnimation(.easeInOut(duration: 0.22)) {
+            expandedMeals.insert(match.id)
+        }
+    }
+
     // MARK: Filters
 
     private static let filterColumns = Array(
@@ -834,9 +931,9 @@ struct MenuResultView: View {
             }
             ForEach(DiningViewModel.allergenFilters) { allergen in
                 filterButton("No \(allergen.label)", symbol: "nosign",
-                             isOn: model.avoidAllergens.contains(allergen),
+                             isOn: model.isAvoiding(allergen),
                              onColor: Self.avoidRed) {
-                    toggle(allergen, in: \.avoidAllergens)
+                    model.toggle(allergen)
                 }
             }
         }
@@ -1004,13 +1101,41 @@ struct StationHeaderRow: View {
 
 // MARK: - Menu item row
 
+/// A dish with its serving size and macros. The numbers come from a per-dish
+/// recipe lookup, so each row fetches its own once it scrolls into view and
+/// shows just the name until they land.
 struct MenuItemRow: View {
     let item: MenuItem
 
+    @State private var facts: NutritionFacts?
+
     var body: some View {
-        Text(item.name)
-            .font(.subheadline)
-            .padding(.vertical, 2)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(item.name)
+                    .font(.subheadline)
+                if let serving = facts?.servingSize, !serving.isEmpty {
+                    Text(serving)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let summary = facts?.macroSummary {
+                Text(summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .padding(.vertical, 2)
+        .task { await loadFacts() }
+    }
+
+    private func loadFacts() async {
+        guard facts == nil, item.hasNutritionLookup else { return }
+        facts = try? await NutritionCache.shared.facts(for: item)
     }
 }
 
