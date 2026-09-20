@@ -7,6 +7,14 @@
 
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Whether the section a view belongs to is the one currently on screen.
+    /// Every section is kept alive in a stack, so `onAppear` fires only once
+    /// per launch — screens that need to restart something each time they're
+    /// opened (the RSF crowd ring's sweep) watch this instead.
+    @Entry var isSectionVisible = true
+}
+
 struct ContentView: View {
     /// Shows the branded launch screen briefly on startup, then reveals the app.
     @State private var showingSplash = true
@@ -19,16 +27,21 @@ struct ContentView: View {
     /// the splash — the Library tab is then already loaded when the user opens it.
     @StateObject private var libraryModel = LibraryViewModel()
 
-    /// The section currently on screen, chosen from the bottom drop-up menu.
+    /// The section currently on screen, chosen from the top drop-down menu.
     @State private var section: AppSection = .dining
 
-    /// Whether the full-width section panel is expanded above the bottom bar.
+    /// Whether the full-width section panel is expanded below the top bar.
     @State private var showMenu = false
 
     /// Drives the status bar above the bottom nav into its "loading" state for a
     /// short beat whenever the section changes, so switching tabs reads as the
     /// new screen spinning up.
     @State private var isTabLoading = false
+
+    /// Measured height of the top bar (title strip + status line, excluding
+    /// the color that bleeds into the status-bar area). The section panel
+    /// uses it to sit flush beneath the bar.
+    @State private var barHeight: CGFloat = 56
 
     /// The status bar shows loading while a tab switch settles, or while the
     /// Library's hours are actually being fetched (its model lives here).
@@ -58,8 +71,8 @@ struct ContentView: View {
 
     /// All sections are kept alive and stacked; only the chosen one is visible
     /// and interactive, so switching between them preserves each screen's state
-    /// (scroll position, loaded data) the way the old tab bar did. The drop-up
-    /// menu lives in a bottom safe-area inset so it never covers content.
+    /// (scroll position, loaded data) the way the old tab bar did. The drop-down
+    /// menu lives in a top safe-area inset so it never covers content.
     private var main: some View {
         ZStack {
             ForEach(AppSection.allCases) { item in
@@ -67,9 +80,10 @@ struct ContentView: View {
                     .opacity(section == item ? 1 : 0)
                     .allowsHitTesting(section == item)
                     .zIndex(section == item ? 1 : 0)
+                    .environment(\.isSectionVisible, section == item)
             }
         }
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaInset(edge: .top) {
             sectionMenu
         }
         .onChange(of: section) { _, _ in
@@ -92,50 +106,78 @@ struct ContentView: View {
         }
     }
 
-    /// The bottom bar that replaces the tab bar: a full-width gray strip showing
-    /// the current section. Tapping it toggles the full-width section panel.
+    /// The top bar that replaces the tab bar: an edge-to-edge dark blue strip
+    /// naming the current section, with a settings gear on the trailing side and
+    /// the animated status line running directly beneath it. Tapping the strip
+    /// toggles the section panel. The blue bleeds past the safe area so it fills
+    /// the status-bar band too.
     private var sectionMenu: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.22)) { showMenu.toggle() }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: section.icon)
-                Text(section.title)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.up")
-                    .font(.subheadline.weight(.semibold))
-                    .rotationEffect(.degrees(showMenu ? 180 : 0))
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(menuFoldAnimation) { showMenu.toggle() }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: section.icon)
+                        Text(section.title)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                            .rotationEffect(.degrees(showMenu ? 180 : 0))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, 20)
+                    .padding(.trailing, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                settingsMenu
+                    .padding(.trailing, 20)
             }
             .font(.headline)
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .background(Color(.systemGray5),
-                        in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            // Seat the status bar on the flat top edge of the nav bar, inset
-            // past the corner radius so it never rides over the rounding.
-            .overlay(alignment: .top) {
-                TabLoadingBar(isLoading: isSectionLoading)
-                    .padding(.horizontal, 22)
-            }
-            // Held a touch narrower than the screen content so the bar reads as
-            // a floating pill rather than a full-width strip.
-            .padding(.horizontal, 28)
-            .padding(.bottom, 4)
+            .foregroundStyle(.white)
+            .padding(.vertical, 10)
+
+            TabLoadingBar(isLoading: isSectionLoading)
         }
-        .buttonStyle(.plain)
+        .background(Theme.berkeleyBlue.ignoresSafeArea(edges: .top))
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            barHeight = height
+        }
     }
 
-    /// A dimming scrim plus a full-width panel that rises from the bottom bar and
-    /// lists every section. Built by hand because a SwiftUI `Menu` popover is
-    /// system-sized and can't be forced to span the full screen width.
+    /// App-wide settings, reachable from every section via the bar's gear.
+    private var settingsMenu: some View {
+        Menu {
+            Button {
+                isDarkMode.toggle()
+            } label: {
+                Label(isDarkMode ? "Light Mode" : "Dark Mode",
+                      systemImage: isDarkMode ? "sun.max" : "moon")
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .foregroundStyle(.white)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Settings")
+    }
+
+    /// A dimming scrim plus a full-width panel that folds down out of the top
+    /// bar and lists every section. Built by hand because a SwiftUI `Menu`
+    /// popover is system-sized and can't be forced to span the full screen
+    /// width. Its charcoal surface sets it apart from the bar's blue, so the
+    /// open menu reads as a panel hanging in front of the screen.
     @ViewBuilder
     private var sectionPanelOverlay: some View {
         if showMenu {
-            ZStack(alignment: .bottom) {
-                Color.black.opacity(0.35)
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.45)
                     .ignoresSafeArea()
                     .onTapGesture { closeMenu() }
                     .transition(.opacity)
@@ -153,41 +195,73 @@ struct ContentView: View {
                                 Spacer(minLength: 0)
                                 if section == item {
                                     Image(systemName: "checkmark")
-                                        .foregroundStyle(Theme.heading)
+                                        .foregroundStyle(Theme.skyBlue)
                                 }
                             }
                             .font(.headline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(section == item ? Color.white.opacity(0.10) : .clear)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
 
                         if item != AppSection.allCases.last {
-                            Divider().padding(.leading, 24)
+                            Divider()
+                                .overlay(Color.white.opacity(0.14))
+                                .padding(.leading, 24)
                         }
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(Color(.systemGray5),
-                            in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .padding(.horizontal, 28)
-                .padding(.bottom, 4)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .background(Theme.menuPanel)
+                .clipShape(
+                    UnevenRoundedRectangle(bottomLeadingRadius: 18,
+                                           bottomTrailingRadius: 18,
+                                           style: .continuous)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+                // Hinges open from its own top edge, so it must be applied
+                // before the padding that seats the panel below the bar.
+                .transition(.fold)
+                // Seat the panel directly on the bar's bottom edge.
+                .padding(.top, barHeight)
             }
             .zIndex(5)
         }
     }
 
     private func closeMenu() {
-        withAnimation(.easeOut(duration: 0.22)) { showMenu = false }
+        withAnimation(menuFoldAnimation) { showMenu = false }
     }
 }
 
-/// The app's top-level sections, surfaced through the bottom drop-up menu.
+/// Timing for the section panel's fold, shared by the open and close paths. A
+/// spring with a touch of overshoot so the panel settles like a hinged flap
+/// rather than sliding.
+private let menuFoldAnimation = Animation.spring(response: 0.34, dampingFraction: 0.78)
+
+/// Unfolds a view downward about its top edge, as though it were hinged there.
+/// Pairs with `menuFoldAnimation`; the 82° start keeps the panel from passing
+/// fully edge-on, which reads as a flicker at small sizes.
+private struct FoldDown: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .rotation3DEffect(.degrees(phase.isIdentity ? 0 : -82),
+                              axis: (x: 1, y: 0, z: 0),
+                              anchor: .top,
+                              perspective: 0.6)
+            .opacity(phase.isIdentity ? 1 : 0)
+    }
+}
+
+private extension AnyTransition {
+    static var fold: AnyTransition { AnyTransition(FoldDown()) }
+}
+
+/// The app's top-level sections, surfaced through the top drop-down menu.
 enum AppSection: String, CaseIterable, Identifiable {
     case dining, library, gym, events, game
 
@@ -196,8 +270,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .dining: "Dining"
-        case .library: "Library"
-        case .gym: "Gym"
+        case .library: "Libraries"
+        case .gym: "Exercise"
         case .events: "Events"
         case .game: "Easter Egg Game"
         }
@@ -207,17 +281,17 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .dining: "fork.knife"
         case .library: "books.vertical"
-        case .gym: "dumbbell"
+        case .gym: "figure.run"
         case .events: "calendar"
         case .game: "gamecontroller.fill"
         }
     }
 }
 
-/// A slim status bar pinned just above the bottom nav. At rest it "breathes" —
-/// a faint light rule gently pulsing its opacity. While a tab is loading it
-/// turns into a sky-blue segment that sweeps left → right on a loop, reading
-/// as busy without a spinner.
+/// A slim status bar running along the bottom of the dark blue nav strip. At
+/// rest it "breathes" — a faint light rule gently pulsing its opacity. While a
+/// tab is loading it turns into a sky-blue segment that sweeps left → right on
+/// a loop, reading as busy without a spinner.
 struct TabLoadingBar: View {
     let isLoading: Bool
 
@@ -234,19 +308,19 @@ struct TabLoadingBar: View {
             ZStack(alignment: .leading) {
                 // The idle/track rule, a subtle sky blue that breathes when
                 // not loading.
-                Capsule()
+                Rectangle()
                     .fill(Theme.skyBlue)
                     .opacity(isLoading ? 0.28 : (breathe ? 0.55 : 0.18))
 
                 // The travelling sky-blue segment shown only while loading.
                 if isLoading {
                     Capsule()
-                        .fill(Theme.skyBlue.opacity(0.7))
+                        .fill(Theme.skyBlue.opacity(0.9))
                         .frame(width: segment)
                         .offset(x: sweep ? width : -segment)
                 }
             }
-            .clipShape(Capsule())
+            .clipped()
         }
         .frame(height: 3)
         .animation(.easeInOut(duration: 0.3), value: isLoading)
@@ -297,4 +371,3 @@ struct SplashView: View {
 #Preview {
     ContentView()
 }
-
