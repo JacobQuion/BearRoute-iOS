@@ -25,6 +25,15 @@ enum Theme {
     /// A bright sky blue, used for the loading status bar above the nav bar.
     static let skyBlue = Color(red: 0.35, green: 0.72, blue: 1.0)
 
+    /// A true yellow-gold, used to call out the notable dining hall dishes.
+    /// Deepens to amber in light mode so it stays legible on the pale list
+    /// background instead of washing out.
+    static let notableGold = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1.0, green: 0.80, blue: 0.27, alpha: 1)
+            : UIColor(red: 0.70, green: 0.50, blue: 0.02, alpha: 1)
+    })
+
     // Semantic roles, so intent is obvious at the call site.
     static let heading = berkeleyBlue
     static let control = foundersRock
@@ -39,6 +48,12 @@ enum Theme {
             : UIColor(red: 0.12, green: 0.30, blue: 0.75, alpha: 1)
     })
 
+    /// Charcoal surface for the section drop-down panel. Deliberately a neutral
+    /// gray rather than the bar's blue, so the open menu reads as a separate
+    /// layer floating over the screen. Fixed in both appearances, since its
+    /// contents are always white.
+    static let menuPanel = Color(red: 0.16, green: 0.17, blue: 0.19)
+
     /// Card surface that adapts to the chosen appearance: the original dark
     /// charcoal in dark mode, and a soft light gray in light mode so cards read
     /// as raised panels instead of black blocks on a white page.
@@ -47,6 +62,16 @@ enum Theme {
             ? UIColor(red: 0.11, green: 0.12, blue: 0.14, alpha: 1)
             : UIColor(red: 0.94, green: 0.95, blue: 0.97, alpha: 1)
     })
+}
+
+/// Layout shared by the photo-card lists on the Dining and Library tabs, so
+/// both read as one connected list rather than separate floating panels.
+enum CardList {
+    /// Narrower than the List's default row insets, so the photos run closer
+    /// to the screen edges and read larger. The tight vertical inset — paired
+    /// with cards that carry no padding of their own — leaves no gap between
+    /// consecutive cards inside a section.
+    static let rowInsets = EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
 }
 
 enum Campus {
