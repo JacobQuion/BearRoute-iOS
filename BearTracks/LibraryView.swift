@@ -47,10 +47,10 @@ final class LibraryViewModel: ObservableObject {
     static let pinnedNames = [
         "Doe Library",
         "Main (Gardner) Stacks",
-        "Business Library",
+        "Moffitt Library",
         "Engineering & Mathematical Sciences Library",  // shown as "Grimes (…)"
         "East Asian Library",
-        "Moffitt Library"
+        "Business Library"
     ]
 
     /// A library's position among the pinned branches, or a value past the end
@@ -60,7 +60,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     /// Branches matching the search box and the "open now" toggle. Doe, Main
-    /// Stacks and Business are pinned to the top; the rest follow with open ones
+    /// Stacks and Moffitt are pinned to the top; the rest follow with open ones
     /// first and then alphabetically.
     var filtered: [Library] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -238,6 +238,7 @@ struct LibraryView: View {
                         row(for: library)
                     }
                     .buttonStyle(.plain)
+                    .listRowInsets(CardList.rowInsets)
                 }
             } footer: {
                 if let updated = model.updatedText {
@@ -278,7 +279,6 @@ struct LibraryView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
     }
 
     private func errorState(_ message: String) -> some View {
@@ -453,7 +453,7 @@ struct LibraryImage: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1.5)
             )
     }
 }

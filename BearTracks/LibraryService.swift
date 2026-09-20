@@ -157,7 +157,7 @@ struct LibraryService {
             ).map(cleanText), !name.isEmpty else { return nil }
 
             let href = firstGroup(in: block, pattern: "library-name\"><a[^>]*href=\"([^\"]+)\"")
-            let hours = firstGroup(in: block, pattern: "library-hours\">(.*?)</p>").map(cleanText) ?? ""
+            let hours = firstGroup(in: block, pattern: "library-hours\">(.*?)</p>").map(hoursText) ?? ""
             let statusText = firstGroup(in: block, pattern: "library-open-status\">(.*?)</div>").map(cleanText) ?? ""
             let addressRaw = firstGroup(in: block, pattern: "library-hours-listing-address\">(.*?)</p>") ?? ""
             let mapsHref = firstGroup(in: block, pattern: "google-maps-link[^>]*href=\"([^\"]+)\"")
@@ -230,13 +230,40 @@ struct LibraryService {
         return lines.joined(separator: "\n")
     }
 
+    /// The hours line, cleaned for display. The site puts a second part after a
+    /// `<br>` (e.g. "24 hours<br>Starts at 1pm. Cal ID required"), which would
+    /// otherwise run straight into the times once the tags come out, so the
+    /// break becomes a visible separator. The Cal ID access note is dropped.
+    nonisolated private static func hoursText(_ html: String) -> String {
+        let separated = html.replacingOccurrences(of: "<br\\s*/?>", with: " · ",
+                                                  options: [.regularExpression, .caseInsensitive])
+        return removingCalIDNote(cleanText(separated))
+    }
+
+    /// Strips the "Cal ID required" building-access note from an hours line,
+    /// along with the separator or sentence punctuation it leaves behind. The
+    /// note appears on many branches in several wordings ("Cal ID required
+    /// after 7pm", "Graduate Student Cal ID required for access").
+    nonisolated private static func removingCalIDNote(_ text: String) -> String {
+        var out = text.replacingOccurrences(of: "[^·.]*\\bcal id\\b[^·.]*", with: "",
+                                            options: [.regularExpression, .caseInsensitive])
+        out = out.replacingOccurrences(of: "·\\s*·", with: "·", options: .regularExpression)
+        out = out.replacingOccurrences(of: "\\s*·\\s*$", with: "", options: .regularExpression)
+        out = out.replacingOccurrences(of: "[ \t]+", with: " ", options: .regularExpression)
+        out = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Drop a now-dangling sentence period, but never the one in "a.m."/"p.m.".
+        out = out.replacingOccurrences(of: "(?<![ap]\\.m)\\.$", with: "",
+                                       options: [.regularExpression, .caseInsensitive])
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // Pure string helpers: `nonisolated` so they can be passed to `.map` and
     // called from any context (the type builds under MainActor default isolation).
     nonisolated private static func cleanText(_ text: String) -> String {
         var out = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         out = decodeEntities(out)
-        // The hours line sometimes glues a note onto the closing time
-        // (e.g. "5 p.m.Cal ID required"); restore the missing space.
+        // Some lines glue a following word onto a closing time
+        // (e.g. "5 p.m.Doe only"); restore the missing space.
         out = out.replacingOccurrences(of: "([ap]\\.m\\.)([A-Za-z])", with: "$1 $2",
                                        options: [.regularExpression, .caseInsensitive])
         out = out.replacingOccurrences(of: "[ \t\n]+", with: " ", options: .regularExpression)
