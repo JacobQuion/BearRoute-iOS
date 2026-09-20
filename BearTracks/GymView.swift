@@ -137,45 +137,114 @@ struct OccupancyScraper: UIViewRepresentable {
 
 // MARK: - Crowd ring
 
-/// A native circular occupancy gauge: a ring that fills with the percentage,
-/// colored green → yellow → orange as it gets busier, with the number centered.
+/// A native circular occupancy gauge: a ring that sweeps up from 0% to the
+/// live reading, its color sliding green → yellow → orange → red as it
+/// travels around, with the number counting up in step. The sweep replays
+/// every time the RSF tab is opened.
 struct CrowdRing: View {
     let percent: Int?
 
-    private func color(_ p: Int) -> Color {
-        switch p {
-        case ..<50: return .green
-        case 50..<80: return .yellow
-        default: return .orange
-        }
-    }
+    /// Drives the whole gauge. Animating this one value is what makes the arc
+    /// travel around the ring instead of snapping to its final length.
+    @State private var sweep: Double = 0
+
+    /// The in-flight sweep, held so a replay can cancel the one before it and
+    /// so a sweep isn't left running after the tab is switched away.
+    @State private var sweepTask: Task<Void, Never>?
+
+    /// The RSF screen is never torn down — it just gets hidden behind another
+    /// section — so this, rather than `onAppear`, is what tells the ring it's
+    /// being opened again.
+    @Environment(\.isSectionVisible) private var isSectionVisible
 
     var body: some View {
         ZStack {
             Circle()
                 .stroke(Color.primary.opacity(0.12), lineWidth: 20)
 
-            if let percent {
-                Circle()
-                    .trim(from: 0, to: CGFloat(min(max(percent, 0), 100)) / 100)
-                    .stroke(color(percent),
-                            style: StrokeStyle(lineWidth: 20, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .animation(.easeInOut(duration: 0.4), value: percent)
+            // Kept in the hierarchy even before the first reading arrives, so
+            // the sweep has a 0% starting point to animate away from.
+            CrowdRingGauge(sweep: sweep)
+                .opacity(percent == nil ? 0 : 1)
 
-                VStack(spacing: 2) {
-                    Text("\(percent)%")
-                        .font(.system(size: 46, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                    Text("full")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
+            if percent == nil {
                 ProgressView()
             }
         }
         .frame(width: 210, height: 210)
+        // Every visit to the tab replays the sweep, so the ring always fills
+        // from 0 on screen rather than sitting at the number it was left on.
+        .onAppear { startSweep() }
+        .onChange(of: isSectionVisible) { _, _ in startSweep() }
+        .onChange(of: percent) { _, _ in startSweep() }
+        .onDisappear { sweepTask?.cancel() }
+    }
+
+    /// Rewinds the ring to 0 and sends it back up to the current reading.
+    /// While the tab is hidden it just parks at 0, so a reading that lands
+    /// offscreen still gets its full sweep the next time the tab is opened.
+    private func startSweep() {
+        sweepTask?.cancel()
+        sweep = 0
+        guard let percent, isSectionVisible else { return }
+
+        sweepTask = Task { @MainActor in
+            // Let the rewind render before animating. Set back to back, the
+            // two updates coalesce and the arc eases from wherever it was
+            // left instead of travelling the whole way up from 0.
+            try? await Task.sleep(for: .milliseconds(30))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 1.4)) {
+                sweep = Double(percent)
+            }
+        }
+    }
+}
+
+/// The animating half of ``CrowdRing``. Conforming the view itself to
+/// `Animatable` means SwiftUI re-runs `body` on every frame of the sweep, so
+/// the arc, its color, and the readout all track the same in-flight value.
+@Animatable
+private struct CrowdRingGauge: View {
+    var sweep: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0, to: min(max(sweep, 0), 100) / 100)
+                .stroke(Self.color(at: sweep),
+                        style: StrokeStyle(lineWidth: 20, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+
+            Text("\(Int(sweep.rounded()))%")
+                .font(.system(size: 46, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+        }
+    }
+
+    /// The color the arc passes through on its way up: calm green while the
+    /// room is quiet, then yellow, orange, and red once it's packed. Stops are
+    /// bunched low so even a middling reading like 50% crosses two of them —
+    /// the color visibly travels with the arc rather than settling on one hue.
+    private static let stops: [(mark: Double, color: Color)] = [
+        (0,   Color(red: 0.13, green: 0.78, blue: 0.44)),
+        (30,  Color(red: 0.85, green: 0.86, blue: 0.20)),
+        (55,  Color(red: 0.98, green: 0.62, blue: 0.15)),
+        (80,  Color(red: 0.94, green: 0.32, blue: 0.20)),
+        (100, Color(red: 0.86, green: 0.15, blue: 0.28))
+    ]
+
+    /// The point on that scale for a given reading, interpolated between the
+    /// surrounding stops so the hue slides continuously instead of snapping.
+    private static func color(at percent: Double) -> Color {
+        let value = min(max(percent, 0), 100)
+        guard let upper = stops.firstIndex(where: { $0.mark >= value }), upper > 0 else {
+            return stops[0].color
+        }
+        let low = stops[upper - 1], high = stops[upper]
+        return low.color.mix(with: high.color,
+                             by: (value - low.mark) / (high.mark - low.mark))
     }
 }
 
