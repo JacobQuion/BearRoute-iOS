@@ -253,6 +253,8 @@ struct GymView: View {
     @State private var reloadCount = 0
     @State private var meterState: MeterLoadState = .loading
     @State private var occupancy: Int?
+    /// Bumped by the top bar's refresh button.
+    @Environment(\.refreshToken) private var refreshToken
 
     var body: some View {
         NavigationStack {
@@ -265,16 +267,12 @@ struct GymView: View {
             }
             .navigationTitle("RSF")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        reloadCount += 1
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-            }
+            // The app's top bar names the section and carries refresh.
+            .toolbar(.hidden, for: .navigationBar)
             .refreshable {
+                reloadCount += 1
+            }
+            .onChange(of: refreshToken) { _, _ in
                 reloadCount += 1
             }
         }

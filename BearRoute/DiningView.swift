@@ -314,14 +314,13 @@ struct DishHit: Identifiable, Hashable {
 // MARK: - Picker screen
 
 struct DiningView: View {
-    @StateObject private var model = DiningViewModel()
+    /// Supplied by `ContentView`, whose top-bar gear offers Diagnostics for it.
+    @ObservedObject var model: DiningViewModel
+    /// Bumped by the top bar's refresh button.
+    @Environment(\.refreshToken) private var refreshToken
     @State private var showingMenu = false
     @State private var showingEateries = false
-    @State private var showingDiagnostics = false
     @State private var searchText = ""
-
-    /// Shared app-wide appearance setting, toggled from the top-right menu.
-    @AppStorage("isDarkMode") private var isDarkMode = true
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -346,47 +345,27 @@ struct DiningView: View {
             }
             .navigationTitle("Dining")
             .navigationBarTitleDisplayMode(.inline)
+            // The app's top bar already names the section and carries refresh
+            // and settings, so the root screen drops its own bar. Pushed
+            // screens (hall menus) still show theirs, with the back button.
+            .toolbar(.hidden, for: .navigationBar)
             // Each hall card is its own section, so section spacing is what
             // separates the thumbnails — tighten it from the default gap.
             .listSectionSpacing(8)
-            // Trim the List's default top inset so the day/search bar sits closer
-            // to the "Dining" title.
-            .contentMargins(.top, 6, for: .scrollContent)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            isDarkMode.toggle()
-                        } label: {
-                            Label(isDarkMode ? "Light Mode" : "Dark Mode",
-                                  systemImage: isDarkMode ? "sun.max" : "moon")
-                        }
-                        Button {
-                            Task { await model.load() }
-                        } label: {
-                            Label("Refresh", systemImage: "arrow.clockwise")
-                        }
-                        Button {
-                            showingDiagnostics = true
-                        } label: {
-                            Label("Diagnostics", systemImage: "stethoscope")
-                        }
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                }
-            }
+            // A set top inset so the day/search bar sits a short, even gap
+            // below the app's blue top bar.
+            .contentMargins(.top, 18, for: .scrollContent)
             .navigationDestination(isPresented: $showingMenu) {
                 MenuResultView(model: model)
             }
             .navigationDestination(isPresented: $showingEateries) {
                 CampusEateriesView(model: model, showMenu: $showingMenu)
             }
-            .sheet(isPresented: $showingDiagnostics) {
-                DiagnosticsView(text: model.diagnostics.summary)
-            }
             .refreshable { await model.load() }
             .onChange(of: model.selectedDate) { _, _ in
+                Task { await model.load() }
+            }
+            .onChange(of: refreshToken) { _, _ in
                 Task { await model.load() }
             }
             .task {
@@ -1211,5 +1190,5 @@ struct DiagnosticsView: View {
 }
 
 #Preview {
-    DiningView()
+    DiningView(model: DiningViewModel())
 }

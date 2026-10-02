@@ -50,23 +50,8 @@ struct GameView: View {
             // A fourth row of square tiles runs past the bottom of a short
             // screen, so let the board scroll — but only when it has to.
             .scrollBounceBehavior(.basedOnSize)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 8) {
-                        // Small BT badge, so the logo reads on any nav-bar appearance.
-                        Image("AppLogo")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 18, height: 18)
-                            .padding(4)
-                            .background(Theme.berkeleyBlue, in: RoundedRectangle(cornerRadius: 6))
-                        Text("What-A-Mole!")
-                            .font(.headline)
-                            .foregroundStyle(Theme.readableBlue)
-                    }
-                }
-            }
+            // The app's top bar already names the section.
+            .toolbar(.hidden, for: .navigationBar)
             .overlay {
                 if showCelebration {
                     celebration

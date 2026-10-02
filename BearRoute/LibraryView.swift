@@ -110,6 +110,8 @@ struct LibraryView: View {
     /// Supplied by `ContentView`, which starts loading it during the splash.
     @ObservedObject var model: LibraryViewModel
     @State private var selected: Library?
+    /// Bumped by the top bar's refresh button.
+    @Environment(\.refreshToken) private var refreshToken
 
     /// True while re-fetching hours for a freshly picked day, which drives the
     /// animated skeleton so the switch reads as "loading" rather than stale.
@@ -131,19 +133,16 @@ struct LibraryView: View {
             .animation(.easeInOut(duration: 0.25), value: isSwitchingDay)
             .navigationTitle("Libraries")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await model.load() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-            }
+            // The app's top bar names the section and carries refresh, so the
+            // root screen drops its own bar; branch details keep theirs.
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(item: $selected) { library in
                 LibraryDetailView(library: library)
             }
             .refreshable { await model.load() }
+            .onChange(of: refreshToken) { _, _ in
+                Task { await model.load() }
+            }
             .onChange(of: model.selectedDate) { _, _ in
                 isSwitchingDay = true
                 Task {
@@ -248,9 +247,9 @@ struct LibraryView: View {
         }
         // Tighten the gap between the filter section and the first library card.
         .listSectionSpacing(8)
-        // Trim the List's default top inset so the day/search bar sits closer
-        // to the "Libraries" title, matching the Dining tab.
-        .contentMargins(.top, 6, for: .scrollContent)
+        // A set top inset so the day/search bar sits a short, even gap below
+        // the app's blue top bar, matching the Dining tab.
+        .contentMargins(.top, 18, for: .scrollContent)
     }
 
     private func row(for library: Library) -> some View {

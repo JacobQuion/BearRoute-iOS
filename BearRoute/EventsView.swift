@@ -100,9 +100,58 @@ final class EventsViewModel: ObservableObject {
     }
 }
 
+/// Lays its subviews out left to right at their natural size, wrapping to a
+/// new row whenever the next one wouldn't fit the available width.
+struct ChipFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, maxWidth: proposal.width ?? .infinity)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, maxWidth: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                                      proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    /// Groups subview indices into rows that each fit within `maxWidth`.
+    private func arrange(_ subviews: Subviews, maxWidth: CGFloat) -> [(indices: [Int], width: CGFloat, height: CGFloat)] {
+        var rows: [(indices: [Int], width: CGFloat, height: CGFloat)] = []
+        var current: (indices: [Int], width: CGFloat, height: CGFloat) = ([], 0, 0)
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if needed > maxWidth, !current.indices.isEmpty {
+                rows.append(current)
+                current = ([index], size.width, size.height)
+            } else {
+                current.indices.append(index)
+                current.width = needed
+                current.height = max(current.height, size.height)
+            }
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
+}
+
 struct EventsView: View {
     @StateObject private var model = EventsViewModel()
     @State private var selected: CampusEvent?
+    /// Bumped by the top bar's refresh button.
+    @Environment(\.refreshToken) private var refreshToken
 
     var body: some View {
         NavigationStack {
@@ -118,19 +167,15 @@ struct EventsView: View {
             }
             .navigationTitle("Campus Events")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await model.load() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-            }
+            // The app's top bar names the section and carries refresh.
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selected) { event in
                 EventDetailView(event: event)
             }
             .refreshable { await model.load() }
+            .onChange(of: refreshToken) { _, _ in
+                Task { await model.load() }
+            }
             .task {
                 if model.events.isEmpty { await model.load() }
             }
@@ -173,21 +218,21 @@ struct EventsView: View {
     // inside a TabView, an inset's content could vanish after switching tabs and
     // coming back. As a List row the bar shares the List's lifecycle, so it stays
     // put and simply scrolls with the content.
+    // The chips wrap onto as many rows as they need instead of scrolling
+    // sideways, so every category is visible at once.
     private var typeBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip(title: "All", isSelected: model.selectedType == nil) {
-                    model.selectedType = nil
-                }
-                ForEach(model.availableTypes, id: \.self) { type in
-                    chip(title: type, isSelected: model.selectedType == type) {
-                        model.selectedType = model.selectedType == type ? nil : type
-                    }
+        ChipFlowLayout(spacing: 8) {
+            chip(title: "All", isSelected: model.selectedType == nil) {
+                model.selectedType = nil
+            }
+            ForEach(model.availableTypes, id: \.self) { type in
+                chip(title: type, isSelected: model.selectedType == type) {
+                    model.selectedType = model.selectedType == type ? nil : type
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
     }
 
     private func chip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -252,9 +297,9 @@ struct EventsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        // Trim the List's default top inset so the search bar sits closer to
-        // the "Campus Events" title.
-        .contentMargins(.top, 6, for: .scrollContent)
+        // A set top inset so the search bar sits a short, even gap below the
+        // app's blue top bar, matching the other tabs.
+        .contentMargins(.top, 18, for: .scrollContent)
         // Tighten the gap between the search/chips section and the first event.
         .listSectionSpacing(8)
     }

@@ -13,6 +13,10 @@ extension EnvironmentValues {
     /// per launch — screens that need to restart something each time they're
     /// opened (the RSF crowd ring's sweep) watch this instead.
     @Entry var isSectionVisible = true
+
+    /// Bumped each time the top bar's refresh button is tapped for the
+    /// section a view belongs to. Sections reload when it changes.
+    @Entry var refreshToken = 0
 }
 
 struct ContentView: View {
@@ -26,6 +30,16 @@ struct ContentView: View {
     /// Owned here (not inside LibraryView) so its hours can start fetching during
     /// the splash — the Library tab is then already loaded when the user opens it.
     @StateObject private var libraryModel = LibraryViewModel()
+
+    /// Owned here so the top bar's gear can show its diagnostics.
+    @StateObject private var diningModel = DiningViewModel()
+
+    /// How many times each section's refresh has been requested from the top
+    /// bar, handed to that section as its `refreshToken`.
+    @State private var refreshCounts: [AppSection: Int] = [:]
+
+    /// Presents the Dining fetch diagnostics, opened from the gear menu.
+    @State private var showingDiagnostics = false
 
     /// The section currently on screen, chosen from the top drop-down menu.
     @State private var section: AppSection = .dining
@@ -61,6 +75,9 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(isDarkMode ? .dark : .light)
+        .sheet(isPresented: $showingDiagnostics) {
+            DiagnosticsView(text: diningModel.diagnostics.summary)
+        }
         .task {
             // Prefetch library hours up front, independently of the splash timer.
             Task { await libraryModel.load() }
@@ -72,19 +89,27 @@ struct ContentView: View {
     /// All sections are kept alive and stacked; only the chosen one is visible
     /// and interactive, so switching between them preserves each screen's state
     /// (scroll position, loaded data) the way the old tab bar did. The drop-down
-    /// menu lives in a top safe-area inset so it never covers content.
+    /// menu is stacked above the sections so it never covers content. (Not a
+    /// safe-area inset: the sections' navigation bars ignore custom insets, so
+    /// an inset bar would sit on top of them and hide their back buttons.)
     private var main: some View {
-        ZStack {
-            ForEach(AppSection.allCases) { item in
-                view(for: item)
-                    .opacity(section == item ? 1 : 0)
-                    .allowsHitTesting(section == item)
-                    .zIndex(section == item ? 1 : 0)
-                    .environment(\.isSectionVisible, section == item)
-            }
-        }
-        .safeAreaInset(edge: .top) {
+        VStack(spacing: 0) {
             sectionMenu
+
+            ZStack {
+                ForEach(AppSection.allCases) { item in
+                    view(for: item)
+                        .opacity(section == item ? 1 : 0)
+                        .allowsHitTesting(section == item)
+                        .zIndex(section == item ? 1 : 0)
+                        .environment(\.isSectionVisible, section == item)
+                        .environment(\.refreshToken, refreshCounts[item, default: 0])
+                }
+            }
+            // Breathing room between the blue bar and each screen's content.
+            // A scroll margin (rather than padding) so the screens' own
+            // backgrounds still run right up to the bar.
+            .contentMargins(.top, 12, for: .scrollContent)
         }
         .onChange(of: section) { _, _ in
             isTabLoading = true
@@ -98,7 +123,7 @@ struct ContentView: View {
     @ViewBuilder
     private func view(for section: AppSection) -> some View {
         switch section {
-        case .dining: DiningView()
+        case .dining: DiningView(model: diningModel)
         case .library: LibraryView(model: libraryModel)
         case .gym: GymView()
         case .events: EventsView()
@@ -107,8 +132,8 @@ struct ContentView: View {
     }
 
     /// The top bar that replaces the tab bar: an edge-to-edge dark blue strip
-    /// naming the current section, with a settings gear on the trailing side and
-    /// the animated status line running directly beneath it. Tapping the strip
+    /// naming the current section, with refresh and settings on the trailing
+    /// side and the animated status line running directly beneath it. Tapping the strip
     /// toggles the section panel. The blue bleeds past the safe area so it fills
     /// the status-bar band too.
     private var sectionMenu: some View {
@@ -133,6 +158,12 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
+                // The game has nothing to reload.
+                if section != .game {
+                    refreshButton
+                        .padding(.trailing, 18)
+                }
+
                 settingsMenu
                     .padding(.trailing, 20)
             }
@@ -150,7 +181,23 @@ struct ContentView: View {
         }
     }
 
+    /// Reloads the current section by bumping its `refreshToken`.
+    private var refreshButton: some View {
+        Button {
+            refreshCounts[section, default: 0] += 1
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .foregroundStyle(.white)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Refresh")
+    }
+
     /// App-wide settings, reachable from every section via the bar's gear.
+    /// On Dining it also carries that screen's Diagnostics, which used to
+    /// live in the Dining screen's own toolbar.
     private var settingsMenu: some View {
         Menu {
             Button {
@@ -158,6 +205,13 @@ struct ContentView: View {
             } label: {
                 Label(isDarkMode ? "Light Mode" : "Dark Mode",
                       systemImage: isDarkMode ? "sun.max" : "moon")
+            }
+            if section == .dining {
+                Button {
+                    showingDiagnostics = true
+                } label: {
+                    Label("Diagnostics", systemImage: "stethoscope")
+                }
             }
         } label: {
             Image(systemName: "gearshape")
