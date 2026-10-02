@@ -11,5 +11,5 @@ Developing Bear Route involved lots of data scraping and intensive UI design. In
 - Live RSF gym meter to find out how crowded the gym is.
 
 ## **Additional**
-- [Landing Page Web View](https://beartracks-official.vercel.app/#) (for viewing in the browser).
+- [Landing Page Web View](https://bearroute-official.vercel.app/#) (for viewing in the browser).
 - [Demo Video](https://www.youtube.com/watch?si=5d9IL79jd1IJ_93T&v=TQcKeJbCv2A&feature=youtu.be) (watch on YouTube!).
