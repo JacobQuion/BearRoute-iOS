@@ -20,7 +20,6 @@ enum RSF {
     /// The live weight room meter, taken verbatim from RecWell's page.
     static let weightRoomMeter = URL(string: "https://safe.density.io/#/displays/dsp_956223069054042646?token=shr_o69HxjQ0BYrY2FPD9HxdirhJYcFDCeRolEd744Uj88e")!
 
-    static let virtualLine = URL(string: "https://417804.waitwell.us/join/48")!
     static let hoursPage = URL(string: "https://recwell.berkeley.edu/facilities/recreational-sports-facility-rsf/rsf-hours/")!
     static let cardioMeterPage = URL(string: "https://recwell.berkeley.edu/facilities/recreational-sports-facility-rsf/rsf-cardio-equipment-usage-meter/")!
     static let facilityPage = URL(string: "https://recwell.berkeley.edu/facilities/recreational-sports-facility-rsf/")!
@@ -260,7 +259,6 @@ struct GymView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     meterCard
-                    lineCard
                     infoCard
                 }
                 .padding(16)
@@ -344,35 +342,6 @@ struct GymView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: Virtual line
-
-    private var lineCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "person.3.fill")
-                    .foregroundStyle(Theme.californiaGold)
-                Text("Packed?")
-                    .font(.headline)
-                    .foregroundStyle(Theme.readableBlue)
-            }
-
-            Text("RecWell opens a virtual line whenever the weight room hits 95% capacity. Join from here and you'll get a text when it's your turn.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Link(destination: RSF.virtualLine) {
-                Label("Join the virtual line", systemImage: "arrow.right.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Theme.control, in: RoundedRectangle(cornerRadius: 10))
-                    .foregroundStyle(.white)
-            }
-        }
-        .padding(14)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
     }
 
     // MARK: Links

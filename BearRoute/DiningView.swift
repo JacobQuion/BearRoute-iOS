@@ -19,7 +19,17 @@ final class DiningViewModel: ObservableObject {
     /// The day the picker was last moved to on its own. Lets the 9 PM
     /// rollover tell "the user is riding along with the default day" apart
     /// from "the user picked a day", so a deliberate choice is never yanked.
-    private var autoSelectedDate: Date
+    /// Published so the rollover notice appears the moment the cutoff fires.
+    @Published private var autoSelectedDate: Date
+
+    /// True while the picker is showing tomorrow's menu because the 9 PM
+    /// cutoff passed, so the screen can explain why it isn't today's.
+    /// `autoSelectedDate` is only ever today or tomorrow, so being later than
+    /// today means the rollover kicked in.
+    var isShowingRolloverMenu: Bool {
+        selectedDate == autoSelectedDate
+            && autoSelectedDate > Calendar.current.startOfDay(for: Date())
+    }
 
     init() {
         let day = DiningViewModel.defaultDate()
@@ -323,6 +333,10 @@ struct DiningView: View {
         NavigationStack {
             List {
                 searchDayBar
+
+                if model.isShowingRolloverMenu {
+                    RolloverNotice()
+                }
 
                 if isSearching {
                     searchResults
@@ -783,6 +797,10 @@ struct MenuResultView: View {
                     .listRowSeparator(.hidden)
             }
 
+            if model.isShowingRolloverMenu {
+                RolloverNotice()
+            }
+
             Section {
                 filterBar
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 2, trailing: 12))
@@ -972,6 +990,10 @@ struct MenuResultView: View {
     /// is actually serving so there's always a way forward.
     private var emptyState: some View {
         List {
+            if model.isShowingRolloverMenu {
+                RolloverNotice()
+            }
+
             Section {
                 VStack(spacing: 10) {
                     Image(systemName: "fork.knife")
@@ -1078,6 +1100,26 @@ struct TruncationNoticeRow: View {
                 .minimumScaleFactor(0.85)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+// MARK: - Rollover notice
+
+/// Shown after the 9 PM cutoff, when the tab has swapped in tomorrow's menus,
+/// so nobody mistakes them for what's being served tonight.
+struct RolloverNotice: View {
+    var body: some View {
+        Section {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Theme.notableGold)
+                Text("Dining halls are closed for the day, so tomorrow's menus have been slotted in.")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 2)
+        }
     }
 }
 

@@ -240,7 +240,7 @@ struct EventsView: View {
                 } header: {
                     Text(EventsViewModel.dayLabel(group.day))
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.heading)
+                        .foregroundStyle(isToday(group.day) ? Theme.readableBlue : Theme.heading)
                         .textCase(nil)
                 }
             }
@@ -257,6 +257,14 @@ struct EventsView: View {
         .contentMargins(.top, 6, for: .scrollContent)
         // Tighten the gap between the search/chips section and the first event.
         .listSectionSpacing(8)
+    }
+
+    /// Matches `dayLabel`'s Pacific-time calendar, so this agrees with the
+    /// "Today" header text.
+    private func isToday(_ day: Date) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles") ?? .current
+        return calendar.isDateInToday(day)
     }
 
     private func errorState(_ message: String) -> some View {
@@ -288,16 +296,6 @@ struct EventRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            if let thumbnailURL = event.thumbnailURL {
-                AsyncImage(url: thumbnailURL) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(Color.primary.opacity(0.06))
-                }
-                .frame(width: 54, height: 54)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(event.title)
                     .font(.subheadline.weight(.semibold))
@@ -353,17 +351,6 @@ struct EventDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if let thumbnailURL = event.thumbnailURL {
-                        AsyncImage(url: thumbnailURL) { image in
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            Rectangle().fill(Color.primary.opacity(0.06))
-                        }
-                        .frame(height: 120)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-
                     Text(event.title)
                         .font(.title3.weight(.bold))
 
