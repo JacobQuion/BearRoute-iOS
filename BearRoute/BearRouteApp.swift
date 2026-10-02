@@ -1,6 +1,6 @@
 //
-//  BearTracksApp.swift
-//  BearTracks
+//  BearRouteApp.swift
+//  Bear Route
 //
 //  Created by Jacob Quion on 7/30/26.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct BearTracksApp: App {
+struct BearRouteApp: App {
     init() {
         // The default shared cache ships with 0 MB memory and ~10 MB disk, so
         // branch and dining photos — which the server marks cacheable for a year

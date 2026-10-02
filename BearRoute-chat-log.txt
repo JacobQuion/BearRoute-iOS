@@ -1,11 +1,11 @@
 ===============================================================================
-BEARTRACKS - BUILD LOG
+BEAR ROUTE - BUILD LOG
 A conversation between Jacob Quion and Claude
 Thursday, July 30, 2026
 ===============================================================================
 
-Project: BearTracks, an all-in-one campus app for UC Berkeley
-Location: ~/Desktop/iOS Apps/BearTracks
+Project: Bear Route, an all-in-one campus app for UC Berkeley
+Location: ~/Desktop/iOS Apps/BearRoute
 Final tabs: Events, Dining, Gym
 
 
@@ -72,11 +72,11 @@ ok so i already installed x code ... now what do i do next
 -------------------------------------------------------------------------------
 CLAUDE
 -------------------------------------------------------------------------------
-[Requested folder access. Jacob connected ~/Desktop/iOS Apps/BearTracks, which
-already contained a BearTracks Xcode project with the default SwiftUI template
+[Requested folder access. Jacob connected ~/Desktop/iOS Apps/BearRoute, which
+already contained a Bear Route Xcode project with the default SwiftUI template
 and one commit.]
 
-You're further along than I thought. There's already a BearTracks Xcode project
+You're further along than I thought. There's already a Bear Route Xcode project
 in that folder with the default SwiftUI template and one commit.
 
 [Asked what the app should do, and whether to build a full v1 or go one screen
@@ -101,9 +101,9 @@ CLAUDE
 -------------------------------------------------------------------------------
 [Researched data sources, then wrote 8 Swift files into the project.]
 
-Wrote 8 files into your BearTracks project. Your project uses Xcode's
+Wrote 8 files into your Bear Route project. Your project uses Xcode's
 synchronized folders, so they're already part of the target. Just open
-BearTracks.xcodeproj and hit Run.
+BearRoute.xcodeproj and hit Run.
 
 WHAT'S THERE
 - Safety tab: a map centered on campus with color-coded pins by category, a
@@ -133,12 +133,12 @@ CLAUDE
 -------------------------------------------------------------------------------
 Open it and run it:
 
-1. Finder > Desktop > iOS Apps > BearTracks > double-click BearTracks.xcodeproj
-2. In the toolbar at the top, click the device dropdown (next to the "BearTracks"
+1. Finder > Desktop > iOS Apps > Bear Route > double-click BearRoute.xcodeproj
+2. In the toolbar at the top, click the device dropdown (next to the "Bear Route"
    scheme name) and pick any iPhone simulator
 3. Press Cmd-R or the play button
 4. First build takes a minute or two. The Simulator app opens on its own and
-   launches BearTracks
+   launches Bear Route
 
 If the build fails: Xcode shows a red banner at the top and lists errors in the
 left sidebar. Select the errors, copy them, and paste them here.
@@ -178,7 +178,7 @@ CLAUDE
 -------------------------------------------------------------------------------
 In the Simulator, your trackpad/mouse cursor is your finger. Click = tap.
 
-GETTING AROUND BEARTRACKS
+GETTING AROUND BEAR ROUTE
 - Bottom of the screen has two tabs, Safety and Dining. Click either one to switch.
 - On the map: click and drag to pan, pinch on the trackpad to zoom. Click a
   colored dot to pull up the incident details.
@@ -221,7 +221,7 @@ Dining now shows all locations instead of just the four dining commons.
 That said, only 2 halls parsing means Cal Dining's page markup probably drifted.
 Rather than guess, let me look at the real thing:
 
-  cd "~/Desktop/iOS Apps/BearTracks" && curl -sL https://dining.berkeley.edu/menus/
+  cd "~/Desktop/iOS Apps/BearRoute" && curl -sL https://dining.berkeley.edu/menus/
   > dining-debug.html && curl -s
   'https://data.cityofberkeley.info/resource/k2nh-s5h5.json?$limit=3'
   > crime-debug.json && echo done
@@ -600,8 +600,8 @@ come back in August the sections stay breakfast, lunch, dinner in that order.
 FINAL STATE
 ===============================================================================
 
-FILES IN BearTracks/BearTracks/
-  BearTracksApp.swift    App entry point
+FILES IN BearRoute/BearRoute/
+  BearRouteApp.swift    App entry point
   ContentView.swift      TabView shell, dark mode locked on
   Theme.swift            Berkeley Blue, California Gold, Founders Rock palette
   EventsService.swift    LiveWhale JSON feed client

@@ -1,6 +1,6 @@
 //
 //  DiningService.swift
-//  BearTracks
+//  Bear Route
 //
 //  Cal Dining does not publish a JSON API, so we fetch the public menus page
 //  and read the structure the site renders:

@@ -1,6 +1,6 @@
 //
 //  DiningView.swift
-//  BearTracks
+//  Bear Route
 //
 
 import SwiftUI

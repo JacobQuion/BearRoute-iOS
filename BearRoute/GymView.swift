@@ -1,6 +1,6 @@
 //
 //  GymView.swift
-//  BearTracks
+//  Bear Route
 //
 //  RecWell publishes the RSF weight room's live occupancy through a Density
 //  SAFE display, embedded on their own page with a public share token:

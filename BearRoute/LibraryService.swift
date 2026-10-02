@@ -1,6 +1,6 @@
 //
 //  LibraryService.swift
-//  BearTracks
+//  Bear Route
 //
 //  The UC Berkeley Library publishes today's hours for every branch on one
 //  server-rendered page (the ucberk.li/hours shortlink):

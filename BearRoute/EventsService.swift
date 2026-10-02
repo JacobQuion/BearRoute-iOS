@@ -1,6 +1,6 @@
 //
 //  EventsService.swift
-//  BearTracks
+//  Bear Route
 //
 //  UC Berkeley's events calendar runs on LiveWhale, which exposes a public
 //  JSON feed. Arguments are path segments, not query strings:

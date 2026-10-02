@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  BearTracks
+//  Bear Route
 //
 //  Created by Jacob Quion on 7/30/26.
 //
@@ -345,7 +345,7 @@ struct TabLoadingBar: View {
     }
 }
 
-/// The branded launch screen: the BearTracks logo centered on the app's dark
+/// The branded launch screen: the Bear Route logo centered on the app's dark
 /// blue, with a small "not affiliated" disclaimer pinned to the bottom.
 struct SplashView: View {
     var body: some View {

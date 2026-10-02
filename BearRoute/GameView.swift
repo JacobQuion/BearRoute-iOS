@@ -1,6 +1,6 @@
 //
 //  GameView.swift
-//  BearTracks
+//  Bear Route
 //
 //  A little easter egg: "Catch Oski" is a whack-a-mole style tap game. Oski
 //  pops up on a grid and you have a few seconds to tap as many as you can.
